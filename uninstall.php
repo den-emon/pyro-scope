@@ -1,12 +1,12 @@
 <?php
 /**
- * Pyre Scope Uninstall
+ * Pyro Scope Uninstall
  *
  * Fired when the plugin is deleted.
  *
- * @package   Pyre_Scope
+ * @package   Pyro_Scope
  */
-// [FIXED] パッケージ名を Pyre_Scope に変更
+// [FIXED] パッケージ名を Pyro_Scope に変更
 
 // WordPressから呼び出されていない場合は、直接のアクセスを禁止
 if (!defined('WP_UNINSTALL_PLUGIN')) {
@@ -16,8 +16,8 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 // === データベースのクリーンアップ ===
 
 $option_keys = [
-    'pyre_scope_options',
-    'pyre_scope_last_scan_timestamp',
+    'pyro_scope_options',
+    'pyro_scope_last_scan_timestamp',
 ];
 
 foreach ($option_keys as $key) {
@@ -25,10 +25,10 @@ foreach ($option_keys as $key) {
 }
 
 // [L9] === Transientキャッシュのクリーンアップ ===
-// check_vuln() が生成する pyre_scope_vuln_* transient を一括削除
+// check_vuln() が生成する pyro_scope_vuln_* transient を一括削除
 global $wpdb;
-$like_transient = $wpdb->esc_like('_transient_pyre_scope_vuln_') . '%';
-$like_timeout   = $wpdb->esc_like('_transient_timeout_pyre_scope_vuln_') . '%';
+$like_transient = $wpdb->esc_like('_transient_pyro_scope_vuln_') . '%';
+$like_timeout   = $wpdb->esc_like('_transient_timeout_pyro_scope_vuln_') . '%';
 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 $wpdb->query(
     $wpdb->prepare(
@@ -42,7 +42,7 @@ $wpdb->query(
 
 // 1. アップロードディレクトリのパスを取得
 $upload_dir   = wp_upload_dir();
-$log_dir_path = $upload_dir['basedir'] . '/fspo-log';
+$log_dir_path = $upload_dir['basedir'] . '/pyro-scope-log';
 
 // [L9] 2. SPLイテレータでディレクトリを再帰削除（グローバル関数定義を回避）
 if (is_dir($log_dir_path)) {

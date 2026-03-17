@@ -1,0 +1,51 @@
+.pyro-scope-results-table {
+    width: 100%;
+    margin-top: 20px;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.pyro-scope-results-table th,
+.pyro-scope-results-table td {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    text-align: left;
+    word-wrap: break-word;
+    overflow-wrap: break-word; /* [L7] 長いパス名の表示崩れ防止 */
+}
+
+.pyro-scope-results-table th {
+    background-color: #f2f2f2;
+}
+
+.pyro-scope-results-table th:first-child {
+    width: 50%;
+}
+
+.pyro-scope-results-table td code {
+    background: #eee;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.pyro-scope-notice {
+    padding: 10px;
+    margin-top: 15px;
+    border-left-width: 4px;
+    border-left-style: solid;
+}
+
+.pyro-scope-notice.info {
+    background-color: #f0f8ff;
+    border-color: #46b450;
+}
+
+.pyro-scope-notice.warning {
+    background-color: #fff8e5;
+    border-color: #ffb900;
+}
+
+.pyro-scope-notice.error {
+    background-color: #fbeaea;
+    border-color: #dc3232;
+}

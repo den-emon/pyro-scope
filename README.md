@@ -1,12 +1,12 @@
-# Pyre Scope
+# Pyro Scope
 
-WordPress security monitoring plugin. Companion to Pyre Shield.
+WordPress security monitoring plugin. Companion to Pyro Shield.
 
 **This is NOT a full vulnerability scanner.** It performs pattern-based detection of known malicious code signatures and does not guarantee detection of all threats.
 
-- **Stable tag:** 3.2
+- **Stable tag:** 3.3
 - **License:** GPLv2 or later
-- **Contributors:** Ikkido (一揆堂無門)
+- **Contributors:** Ikkido-den (一揆堂田)
 
 ## Requirements
 
@@ -47,7 +47,7 @@ Scans published posts, wp_options, and approved comments for:
 
 ### Whitelist
 
-Paths can be excluded from the file scan (e.g., Pyre Shield's plugin directory) to prevent false positives between companion plugins.
+Paths can be excluded from the file scan (e.g., Pyro Shield's plugin directory) to prevent false positives between companion plugins.
 
 ### Auto Scan
 
@@ -69,10 +69,10 @@ Compares installed plugin versions against the latest versions available on Word
 
 ## Scan Result Storage
 
-- Scan results are stored as JSON at `wp-content/uploads/fspo-log/fspo-scan.json`.
+- Scan results are stored as JSON at `wp-content/uploads/pyro-scope-log/pyro-scope-scan.json`.
 - The log directory is protected by an `index.php` silence file and a `.htaccess` deny rule (Apache only).
-- Last scan timestamp is stored in `pyre_scope_last_scan_timestamp` (wp_options, autoload: no).
-- Plugin vulnerability check results are cached as transients (`pyre_scope_vuln_*`) with a 12-hour TTL.
+- Last scan timestamp is stored in `pyro_scope_last_scan_timestamp` (wp_options, autoload: no).
+- Plugin vulnerability check results are cached as transients (`pyro_scope_vuln_*`) with a 12-hour TTL.
 
 ## Limitations
 
@@ -87,7 +87,7 @@ Compares installed plugin versions against the latest versions available on Word
 
 ## Security Considerations
 
-- Scan results may contain file paths and database content. The log directory is protected against HTTP access on Apache via `.htaccess`. Nginx environments require manual configuration to deny access to `wp-content/uploads/fspo-log/`.
+- Scan results may contain file paths and database content. The log directory is protected against HTTP access on Apache via `.htaccess`. Nginx environments require manual configuration to deny access to `wp-content/uploads/pyro-scope-log/`.
 - The AJAX scan endpoint requires `manage_options` capability and nonce verification.
 - This plugin does not modify or delete any detected files. It is detection and reporting only.
 - This plugin does not communicate with any external service other than the WordPress.org API.
@@ -111,51 +111,51 @@ Compares installed plugin versions against the latest versions available on Word
 - This plugin does not integrate with CVE databases or vulnerability advisory feeds.
 - This plugin does not provide real-time file system monitoring (inotify or similar).
 - This plugin does not replace professional security auditing or penetration testing.
-- This plugin does not provide user authentication, login protection, or brute-force prevention (delegated to Pyre Shield).
-- This plugin does not provide WAF functionality (delegated to Pyre Shield).
+- This plugin does not provide user authentication, login protection, or brute-force prevention (delegated to Pyro Shield).
+- This plugin does not provide WAF functionality (delegated to Pyro Shield).
 
-## Pyre Shield Integration
+## Pyro Shield Integration
 
-Pyre Scope is designed as a companion to Pyre Shield.
+Pyro Scope is designed as a companion to Pyro Shield.
 
-- Login protection and WAF functionality are delegated to Pyre Shield and are not included in Pyre Scope.
-- Adding Pyre Shield's plugin directory to the whitelist prevents false positives between the two plugins.
+- Login protection and WAF functionality are delegated to Pyro Shield and are not included in Pyro Scope.
+- Adding Pyro Shield's plugin directory to the whitelist prevents false positives between the two plugins.
 
 ## FAQ
 
-**Can I use Pyre Scope without Pyre Shield?**
-Yes. Pyre Scope works standalone. However, for login protection and advanced defense features, using it together with Pyre Shield is recommended.
+**Can I use Pyro Scope without Pyro Shield?**
+Yes. Pyro Scope works standalone. However, for login protection and advanced defense features, using it together with Pyro Shield is recommended.
 
 **Can I change the scan frequency?**
 In the current version, automatic scans are fixed to weekly. You can run a manual scan at any time using the "Run manual scan now" button in the admin screen.
 
 **Are detected files automatically deleted?**
-No. Pyre Scope only detects and reports. File deletion or remediation must be performed manually by the administrator.
+No. Pyro Scope only detects and reports. File deletion or remediation must be performed manually by the administrator.
 
 **Is multisite supported?**
 The current version targets single-site installations. In multisite environments, the plugin must be activated individually on each site by the network administrator.
 
 ## Module Configuration
 
-Each feature can be toggled independently via the `pyre_scope_options` option:
+Each feature can be toggled independently via the `pyro_scope_options` option:
 
 - `enable_scanner` — File scan and DB scan (default: ON)
 - `enable_integrity` — Core file integrity check (default: ON)
 - `enable_vuln` — Plugin vulnerability check (default: ON)
-- `whitelist_paths` — Array of paths excluded from file scan (default: `['wp-content/plugins/pyre-shield']`)
+- `whitelist_paths` — Array of paths excluded from file scan (default: `['wp-content/plugins/pyro-shield']`)
 
 ## Installation
 
-1. Upload the `pyre-scope` folder to `wp-content/plugins/`.
+1. Upload the `pyro-scope` folder to `wp-content/plugins/`.
 2. Activate the plugin from the WordPress admin Plugins page.
-3. Access "Pyre Scope" from the admin menu to run scans and view results.
+3. Access "Pyro Scope" from the admin menu to run scans and view results.
 
 ### Nginx Configuration
 
 Add the following to deny HTTP access to the scan log directory:
 
 ```
-location ~* /wp-content/uploads/fspo-log/ {
+location ~* /wp-content/uploads/pyro-scope-log/ {
     deny all;
     return 403;
 }
@@ -163,12 +163,19 @@ location ~* /wp-content/uploads/fspo-log/ {
 
 ## Upgrade Notice
 
+- **3.3:** Breaking change — Plugin renamed from Pyre Scope to Pyro Scope. All identifiers, file names, and log paths updated. Settings from 3.2 are not migrated.
 - **3.2:** Code quality improvements. No breaking changes.
-- **3.1:** Breaking change — Simple WAF feature removed. Use Pyre Shield for WAF functionality.
-- **3.0:** Breaking change — All internal identifiers renamed to `pyre_scope`. Settings from previous versions are not migrated. Re-check your settings after upgrading.
+- **3.1:** Breaking change — Simple WAF feature removed. Use Pyro Shield for WAF functionality.
+- **3.0:** Breaking change — All internal identifiers renamed from `pyreopsis` to `pyro_scope`. Settings from previous versions are not migrated. Re-check your settings after upgrading.
 - **2.8:** Contains security fixes (AJAX permission check, PHP 8.1+ compatibility, information leak prevention). Immediate update recommended for all users.
 
 ## Changelog
+
+### 3.3
+
+- **Breaking:** Renamed plugin from Pyre Scope to Pyro Scope. All internal identifiers updated (`pyre_scope_*` → `pyro_scope_*`, `pyre-scope-*` → `pyro-scope-*`, `PyreScopeAjax` → `PyroScopeAjax`). Plugin file renamed from `pyre-scope.php` to `pyro-scope.php`. Asset files renamed accordingly.
+- **Breaking:** Renamed log directory from `fspo-log` to `pyro-scope-log` and log file from `fspo-scan.json` to `pyro-scope-scan.json`.
+- **Breaking:** Renamed companion plugin references from Pyre Shield to Pyro Shield. Default whitelist path updated from `wp-content/plugins/pyre-shield` to `wp-content/plugins/pyro-shield`.
 
 ### 3.2
 
@@ -180,11 +187,11 @@ location ~* /wp-content/uploads/fspo-log/ {
 
 ### 3.1
 
-- **Breaking:** Removed Simple WAF feature entirely (delegated to Pyre Shield). Removed `run_waf()`, `waf_check_value()`, `enable_waf` option, and all associated hooks and patterns.
+- **Breaking:** Removed Simple WAF feature entirely (delegated to Pyro Shield). Removed `run_waf()`, `waf_check_value()`, `enable_waf` option, and all associated hooks and patterns.
 
 ### 3.0
 
-- **Breaking:** Renamed all internal identifiers from `pyreopsis` to `pyre_scope`. Affects DB option keys (`pyre_scope_options`, `pyre_scope_last_scan_timestamp`), cron event (`pyre_scope_weekly_scan_event`), transient prefix (`pyre_scope_vuln_`), and CSS classes (`pyre-scope-notice`, `pyre-scope-results-table`).
+- **Breaking:** Renamed all internal identifiers from `pyreopsis` to `pyre_scope` (subsequently renamed to `pyro_scope` in 3.3).
 - **Breaking:** Removed phantom filter hook documentation (`pyreopsis_allow_login_protection`, `pyreopsis_is_login_endpoint`) — no implementation existed.
 - Removed obsolete option keys from uninstall cleanup.
 
@@ -210,7 +217,7 @@ location ~* /wp-content/uploads/fspo-log/ {
 - Fixed missing vulnerability check results in HTML output
 - Fixed `$wpdb->get_results()` null return TypeError on PHP 8.0+
 - Fixed asset file path references
-- Unified plugin name to Pyre Scope
+- Unified plugin name to Pyro Scope
 - Added PHP 8.1 type declarations to all properties
 - Changed `catch (Exception)` to `catch (\Throwable)`
 - Improved DB scan to query `option_value` directly
