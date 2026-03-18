@@ -28,6 +28,23 @@ final class Pyro_Scope
     // [H2] PHP 8.1準拠の型宣言を全プロパティに追加
     private static ?self $instance = null;
     private const PLUGIN_VERSION = '3.3';
+    private const DB_BATCH_SIZE = 500;
+    private const MAX_SCAN_FILES = 50000;
+
+    /** @var array<string, string> ファイルスキャン用シグネチャ定義 */
+    private const FILE_SIGNATURES = [
+        'Variable Function Execution' => '/\$[a-zA-Z0-9_]+\s*\(\s*[`\'"](pass(thru)?|shell_exec|system|exec|popen|proc_open)/i',
+        'Obfuscated Eval'             => '/(eval|assert|preg_replace)\s*\(\s*(\'|")\s*\.\s*(\'|")\s*\.\s*/i',
+        'Advanced Obfuscation'        => '/(eval|assert)\s*\(\s*(gzuncompress|gzinflate|base64_decode|str_rot13)\s*\(/i',
+        'File Upload Webshell'        => '/move_uploaded_file\s*\(\s*\$_FILES\s*\[\s*[\'"].*?[\'"]\s*\]\s*\[\s*[\'"]tmp_name[\'"]\s*\]/i',
+        'Remote Code Execution'       => '/(include|require)(_once)?\s*[\s(]\s*\$_GET\s*\[/i',
+        'Create Function Webshell'    => '/create_function\s*\(/i',
+        'Eval Base64 Decode'          => '/\beval\s*\(\s*base64_decode\s*\(/i',
+        'User Input Include'          => '/(include|require)(_once)?\s*[\s(]\s*\$_(REQUEST|POST)\s*\[/i',
+        'User Input Eval'             => '/\beval\s*\(\s*\$_(REQUEST|POST)\s*\[/i',
+        'PHP File Write'              => '/file_put_contents\s*\([^)]*\.php/i',
+    ];
+
     private string $option_key = 'pyro_scope_options';
     /** @var array<string, mixed> */
     private array $options;
@@ -149,50 +166,49 @@ final class Pyro_Scope
 
     public function settings_page(): void
     {
-        ?>
-        <div class="wrap">
-            <h1>Pyro Scope</h1>
-            <p style="font-size:1.1em; background:#fff; padding:10px; border-left: 4px solid #72aee6;">
-                <?php
-                $last_scan_timestamp = get_option('pyro_scope_last_scan_timestamp');
-                if ($last_scan_timestamp) {
-                    // [C2] wp_date()はWordPressの管理画面タイムゾーン設定を自動的に使用する。
-                    $formatted_date = wp_date(
-                        get_option('date_format') . ' H:i:s',
-                        (int) $last_scan_timestamp
-                    );
-                    // wp_date()はフォーマット失敗時にfalseを返す
-                    echo '<strong>最終スキャン実行日時:</strong> ' . esc_html((string) $formatted_date);
-                } else {
-                    echo 'まだスキャンは実行されていません。';
-                }
-                ?>
-            </p>
+        // --- 設定フォームの保存処理 ---
+        $settings_saved = false;
+        if (isset($_POST['pyro_scope_save_settings'])) {
+            check_admin_referer('pyro_scope_settings_nonce');
 
-            <button id="pyro-scope-run-scan" class="button button-primary">Run manual scan now</button>
-            <div id="pyro-scope-progress-container" style="margin-top:10px; width:100%; background:#eee; height:20px; border-radius:3px; display:none;">
-                <div id="pyro-scope-progress-bar" style="width:0%; height:100%; background:#0a0; transition: width 0.1s;"></div>
-            </div>
-            <pre id="pyro-scope-scan-log" style="margin-top:10px; background:#f5f5f5; padding:10px; height:200px; overflow:auto; border:1px solid #ccc;"></pre>
-
-            <div id="pyro-scope-results-container">
-                <?php
-                $log_path = $this->get_log_file_path();
-                if (file_exists($log_path) && is_readable($log_path)) {
-                    $json_data = file_get_contents($log_path);
-                    if ($json_data !== false) {
-                        $last_results = json_decode($json_data, true);
-                        if (is_array($last_results) && isset($last_results['scan_data'])) {
-                            // generate_results_html は内部で全値をesc_html済み
-                            // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-                            echo $this->generate_results_html($last_results['scan_data']);
-                        }
+            $whitelist = [];
+            if (!empty($_POST['whitelist_paths'])) {
+                $lines = explode("\n", sanitize_textarea_field(wp_unslash($_POST['whitelist_paths'])));
+                $whitelist = array_values(array_filter(
+                    array_map('trim', $lines),
+                    static function (string $line): bool {
+                        return $line !== '';
                     }
+                ));
+            }
+
+            $new_options = [
+                'enable_scanner'   => isset($_POST['enable_scanner']) ? 1 : 0,
+                'enable_integrity' => isset($_POST['enable_integrity']) ? 1 : 0,
+                'enable_vuln'      => isset($_POST['enable_vuln']) ? 1 : 0,
+                'whitelist_paths'  => $whitelist,
+            ];
+
+            update_option($this->option_key, $new_options);
+            $this->options  = $new_options;
+            $settings_saved = true;
+        }
+
+        // --- テンプレート変数の準備 ---
+        $scan_results_html = '';
+        $log_path          = $this->get_log_file_path();
+        if (file_exists($log_path) && is_readable($log_path)) {
+            $json_data = file_get_contents($log_path);
+            if ($json_data !== false) {
+                $last_results = json_decode($json_data, true);
+                if (is_array($last_results) && isset($last_results['scan_data'])) {
+                    $scan_results_html = $this->generate_results_html($last_results['scan_data']);
                 }
-                ?>
-            </div>
-        </div>
-        <?php
+            }
+        }
+
+        $options = $this->options;
+        include __DIR__ . '/templates/admin-page.php';
     }
 
     // [C1] nonce検証に加えて権限チェックを追加
@@ -255,7 +271,7 @@ final class Pyro_Scope
 
         // [M5] JSON_UNESCAPED_UNICODE追加（日本語の可読性向上）
         // [v2.9] LOCK_EXを追加（並行書き込み時のデータ破損防止）
-        file_put_contents(
+        $write_result = file_put_contents(
             $this->get_log_file_path(),
             (string) json_encode(
                 $log_data_structure,
@@ -263,6 +279,10 @@ final class Pyro_Scope
             ),
             LOCK_EX
         );
+        if ($write_result === false) {
+            $scan_data['log'][]          = 'Warning: Failed to save scan results to disk.';
+            $scan_data['scan_incomplete'] = true;
+        }
 
         // [H7] autoload=falseを指定（管理画面でのみ必要な値）
         update_option('pyro_scope_last_scan_timestamp', $scan_timestamp, false);
@@ -271,85 +291,16 @@ final class Pyro_Scope
     }
 
     /**
-     * スキャン結果をHTMLとして生成する（内部で全動的値をesc_html済み）
+     * スキャン結果をHTMLとして生成する（テンプレート内で全動的値をesc_html済み）
      *
      * @param array<string, mixed> $results
      * @return string エスケープ済みHTML
      */
     private function generate_results_html(array $results): string
     {
-        $html = '';
-
-        // === 整合性チェック結果 ===
-        $integrity_issues = $results['integrity'] ?? [];
-        $integrity_count  = count($integrity_issues);
-        $first_issue      = $integrity_issues[0] ?? '';
-
-        if (is_string($first_issue) && str_starts_with($first_issue, 'Error:')) {
-            $html .= '<div class="pyro-scope-notice error">';
-            $html .= '<h3>Integrity Check Failed</h3>';
-            $html .= '<p>' . esc_html($first_issue) . '</p>';
-            $html .= '</div>';
-        } elseif ($integrity_count > 0) {
-            $html .= '<div class="pyro-scope-notice warning">';
-            $html .= '<h3>' . esc_html((string) $integrity_count) . '件のコアファイルの整合性に関する問題が検出されました 危険</h3>';
-            $html .= '<p>以下のWordPressコアファイルが、公式のファイルと異なります。改ざんの可能性が非常に高いです。</p>';
-            $html .= '<ul style="list-style:disc; margin-left:20px;">';
-            foreach ($integrity_issues as $issue) {
-                $html .= '<li><code>' . esc_html((string) $issue) . '</code></li>';
-            }
-            $html .= '</ul></div>';
-        } else {
-            $html .= '<div class="pyro-scope-notice info">';
-            $html .= '<h3>コアファイルの整合性は正常です ✅</h3>';
-            $html .= '<p>WordPressコアファイルは、WordPress.orgの公式ファイルと一致しています。</p>';
-            $html .= '</div>';
-        }
-
-        // === 不審ファイル検出結果 ===
-        $files = $results['files'] ?? [];
-        if (!empty($files)) {
-            $html .= '<h2>不審なファイルの検出結果 (' . (int) count($files) . '件)</h2>';
-            $html .= '<table class="pyro-scope-results-table">';
-            $html .= '<thead><tr><th>ファイルパス</th><th>原因 (検出シグネチャ)</th></tr></thead><tbody>';
-            foreach ($files as $file_path => $cause) {
-                $html .= '<tr>';
-                $html .= '<td><code>' . esc_html(str_replace(ABSPATH, '', (string) $file_path)) . '</code></td>';
-                $html .= '<td>' . esc_html((string) $cause) . '</td>';
-                $html .= '</tr>';
-            }
-            $html .= '</tbody></table>';
-        }
-
-        // === 不審DBエントリ検出結果 ===
-        $db_entries = $results['db'] ?? [];
-        if (!empty($db_entries)) {
-            $html .= '<h2>不審なDBエントリの検出結果 (' . (int) count($db_entries) . '件)</h2>';
-            $html .= '<table class="pyro-scope-results-table">';
-            $html .= '<thead><tr><th>場所</th><th>原因 (検出パターン)</th></tr></thead><tbody>';
-            foreach ($db_entries as $entry_location => $cause) {
-                $html .= '<tr>';
-                $html .= '<td>' . esc_html((string) $entry_location) . '</td>';
-                $html .= '<td>' . esc_html((string) $cause) . '</td>';
-                $html .= '</tr>';
-            }
-            $html .= '</tbody></table>';
-        }
-
-        // === 脆弱性チェック（バージョン未更新プラグイン）結果 ===
-        $vuln_entries = $results['vuln'] ?? [];
-        if (!empty($vuln_entries)) {
-            $html .= '<div class="pyro-scope-notice warning">';
-            $html .= '<h3>' . (int) count($vuln_entries) . '件のプラグインが最新版ではありません</h3>';
-            $html .= '<p>以下のプラグインに更新があります。セキュリティ修正を含む可能性があるため、早急な更新を推奨します。</p>';
-            $html .= '<ul style="list-style:disc; margin-left:20px;">';
-            foreach ($vuln_entries as $vuln) {
-                $html .= '<li>' . esc_html((string) $vuln) . '</li>';
-            }
-            $html .= '</ul></div>';
-        }
-
-        return $html;
+        ob_start();
+        include __DIR__ . '/templates/scan-results.php';
+        return (string) ob_get_clean();
     }
 
     /**
@@ -418,20 +369,10 @@ final class Pyro_Scope
             return wp_normalize_path(ABSPATH . trim($p));
         }, $whitelist_raw);
 
-        $findings   = [];
-        $signatures = [
-            'Variable Function Execution' => '/\$[a-zA-Z0-9_]+\s*\(\s*[`\'"](pass(thru)?|shell_exec|system|exec|popen|proc_open)/i',
-            'Obfuscated Eval'             => '/(eval|assert|preg_replace)\s*\(\s*(\'|")\s*\.\s*(\'|")\s*\.\s*/i',
-            'Advanced Obfuscation'        => '/(eval|assert)\s*\(\s*(gzuncompress|gzinflate|base64_decode|str_rot13)\s*\(/i',
-            'File Upload Webshell'        => '/move_uploaded_file\s*\(\s*\$_FILES\s*\[\s*[\'"].*?[\'"]\s*\]\s*\[\s*[\'"]tmp_name[\'"]\s*\]/i',
-            'Remote Code Execution'       => '/(include|require)(_once)?\s*[\s(]\s*\$_GET\s*\[/i',
-            'Create Function Webshell'    => '/create_function\s*\(/i',
-            'Eval Base64 Decode'          => '/\beval\s*\(\s*base64_decode\s*\(/i',
-            'User Input Include'          => '/(include|require)(_once)?\s*[\s(]\s*\$_(REQUEST|POST)\s*\[/i',
-            'User Input Eval'             => '/\beval\s*\(\s*\$_(REQUEST|POST)\s*\[/i',
-            'PHP File Write'              => '/file_put_contents\s*\([^)]*\.php/i',
-        ];
+        $findings = [];
 
+        // 自プラグインディレクトリはスキャン対象から除外（自己検出の防止）
+        $self_dir    = wp_normalize_path(plugin_dir_path(__FILE__));
         $uploads_dir = wp_normalize_path(ABSPATH . 'wp-content/uploads/');
 
         $result = ['findings' => []];
@@ -442,8 +383,20 @@ final class Pyro_Scope
                 RecursiveIteratorIterator::SELF_FIRST
             );
 
+            $file_count = 0;
             foreach ($iterator as $file) {
                 if (!$file->isFile() || !$file->isReadable()) {
+                    continue;
+                }
+
+                if (++$file_count > self::MAX_SCAN_FILES) {
+                    $result['error'] = 'File scan limit reached (' . self::MAX_SCAN_FILES . ' files). Scan may be incomplete.';
+                    break;
+                }
+
+                // 拡張子を先にチェックし、PHP/JS以外はパス正規化・ホワイトリスト照合をスキップ
+                $ext = strtolower($file->getExtension());
+                if (!in_array($ext, ['php', 'js'], true)) {
                     continue;
                 }
 
@@ -452,15 +405,15 @@ final class Pyro_Scope
                     continue;
                 }
 
+                // 自プラグイン除外（ユーザー設定のホワイトリストとは独立）
+                if (str_starts_with($path, $self_dir)) {
+                    continue;
+                }
+
                 foreach ($whitelist as $w) {
                     if (str_starts_with($path, $w)) {
                         continue 2;
                     }
-                }
-
-                $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-                if (!in_array($ext, ['php', 'js'], true)) {
-                    continue;
                 }
 
                 // Flag any .php file inside wp-content/uploads/ as suspicious
@@ -479,7 +432,7 @@ final class Pyro_Scope
                     continue;
                 }
 
-                foreach ($signatures as $cause => $pattern) {
+                foreach (self::FILE_SIGNATURES as $cause => $pattern) {
                     if (preg_match($pattern, $content)) {
                         $findings[$path] = $cause;
                         continue 2;
@@ -510,12 +463,20 @@ final class Pyro_Scope
             'Malicious Iframe'  => '/<iframe\b/i',
         ];
 
-        // --- 投稿コンテンツのスキャン ---
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $posts = $wpdb->get_results(
-            "SELECT ID, post_content FROM `{$wpdb->posts}` WHERE `post_status` = 'publish'"
-        );
-        if (is_array($posts)) {
+        // --- 投稿コンテンツのスキャン（バッチ処理） ---
+        $offset = 0;
+        do {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+            $posts = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT ID, post_content FROM `{$wpdb->posts}` WHERE `post_status` = 'publish' LIMIT %d OFFSET %d",
+                    self::DB_BATCH_SIZE,
+                    $offset
+                )
+            );
+            if (!is_array($posts) || empty($posts)) {
+                break;
+            }
             foreach ($posts as $post) {
                 $location = 'Post ID: ' . $post->ID;
                 foreach ($suspicious_patterns as $cause => $pattern) {
@@ -525,43 +486,50 @@ final class Pyro_Scope
                     }
                 }
             }
-        }
+            $offset += self::DB_BATCH_SIZE;
+        } while (count($posts) === self::DB_BATCH_SIZE);
 
-        // --- オプションテーブルのスキャン ---
-        $skip_options = ['rewrite_rules', 'active_plugins', 'cron'];
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $options = $wpdb->get_results(
-            "SELECT option_name, option_value FROM `{$wpdb->options}`"
-        );
-        if (is_array($options)) {
+        // --- オプションテーブルのスキャン（DB側フィルタ + バッチ処理） ---
+        $skip_options    = ['rewrite_rules', 'active_plugins', 'cron'];
+        $skip_placeholders = implode(', ', array_fill(0, count($skip_options), '%s'));
+        $offset = 0;
+        do {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+            $options = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT option_name, option_value FROM `{$wpdb->options}` WHERE `option_name` NOT IN ({$skip_placeholders}) AND LENGTH(`option_value`) <= %d LIMIT %d OFFSET %d",
+                    ...array_merge($skip_options, [100000, self::DB_BATCH_SIZE, $offset])
+                )
+            );
+            if (!is_array($options) || empty($options)) {
+                break;
+            }
             foreach ($options as $option) {
-                if (in_array($option->option_name, $skip_options, true)) {
-                    continue;
-                }
-
-                $value_str = (string) $option->option_value;
-
-                // 巨大な値はスキップ（パフォーマンス保護）
-                if (strlen($value_str) > 100000) {
-                    continue;
-                }
-
                 $location = 'Option: ' . $option->option_name;
                 foreach ($suspicious_patterns as $cause => $pattern) {
-                    if (preg_match($pattern, $value_str)) {
+                    if (preg_match($pattern, (string) $option->option_value)) {
                         $findings[$location] = $cause;
                         break;
                     }
                 }
             }
-        }
+            $offset += self::DB_BATCH_SIZE;
+        } while (count($options) === self::DB_BATCH_SIZE);
 
-        // --- コメントのスキャン ---
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $comments = $wpdb->get_results(
-            "SELECT comment_ID, comment_content FROM `{$wpdb->comments}` WHERE `comment_approved` = '1'"
-        );
-        if (is_array($comments)) {
+        // --- コメントのスキャン（バッチ処理） ---
+        $offset = 0;
+        do {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+            $comments = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT comment_ID, comment_content FROM `{$wpdb->comments}` WHERE `comment_approved` = '1' LIMIT %d OFFSET %d",
+                    self::DB_BATCH_SIZE,
+                    $offset
+                )
+            );
+            if (!is_array($comments) || empty($comments)) {
+                break;
+            }
             foreach ($comments as $comment) {
                 $location = 'Comment ID: ' . $comment->comment_ID;
                 foreach ($suspicious_patterns as $cause => $pattern) {
@@ -571,7 +539,8 @@ final class Pyro_Scope
                     }
                 }
             }
-        }
+            $offset += self::DB_BATCH_SIZE;
+        } while (count($comments) === self::DB_BATCH_SIZE);
 
         return $findings;
     }
@@ -589,6 +558,22 @@ final class Pyro_Scope
         $all_plugins = get_plugins();
         $findings    = [];
 
+        // WordPress コアのアップデートチェック結果を活用（APIコール不要）
+        $update_transient = get_site_transient('update_plugins');
+        if (is_object($update_transient) && !empty($update_transient->response)) {
+            foreach ($update_transient->response as $plugin_file => $update_info) {
+                if (!isset($all_plugins[$plugin_file])) {
+                    continue;
+                }
+                $meta = $all_plugins[$plugin_file];
+                if (is_object($update_info) && !empty($update_info->new_version)) {
+                    $findings[] = $meta['Name'] . " (Installed: {$meta['Version']}, Latest: {$update_info->new_version})";
+                }
+            }
+            return $findings;
+        }
+
+        // フォールバック: WP transient が利用不可の場合のみ個別APIコール
         foreach ($all_plugins as $path => $meta) {
             $slug = dirname($path);
             if ($slug === '' || $slug === '.') {
