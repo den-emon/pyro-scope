@@ -150,6 +150,30 @@ Each feature can be toggled independently via the `pyro_scope_options` option:
 2. Activate the plugin from the WordPress admin Plugins page.
 3. Access "Pyro Scope" from the admin menu to run scans and view results.
 
+## Tests
+
+This plugin includes a small PHPUnit test suite under `tests/`. The tests use a minimal WordPress stub bootstrap, so a full WordPress test environment or database is not required.
+
+1. Install development dependencies:
+
+```
+composer install
+```
+
+2. Run the full test suite from the plugin root:
+
+```
+./vendor/bin/phpunit
+```
+
+3. Optional: run a single test file:
+
+```
+./vendor/bin/phpunit tests/PyroScopeTest.php
+```
+
+`phpunit.xml.dist` is loaded automatically, so no extra options are required for the default test run.
+
 ### Nginx Configuration
 
 Add the following to deny HTTP access to the scan log directory:

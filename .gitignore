@@ -3,3 +3,6 @@
 
 # Track .gitignore itself
 !.gitignore
+
+# Composer dev dependencies
+/vendor/
